@@ -93,6 +93,8 @@ trap_init(void)
 	extern void trap_19();
 
 	extern void trap_32();
+	extern void trap_33();
+	extern void trap_36();
 
 	extern void trap_48();
 
@@ -118,6 +120,8 @@ trap_init(void)
 	SETGATE(idt[T_SIMDERR], 0, GD_KT, trap_19, 0);
 
 	SETGATE(idt[IRQ_OFFSET], 0, GD_KT, trap_32, 0);
+	SETGATE(idt[IRQ_OFFSET + IRQ_KBD], 0, GD_KT, trap_33, 0);
+	SETGATE(idt[IRQ_OFFSET + IRQ_SERIAL], 0, GD_KT, trap_36, 0);
 
 	SETGATE(idt[T_SYSCALL], 0, GD_KT, trap_48, 3);
 
@@ -261,6 +265,18 @@ trap_dispatch(struct Trapframe *tf)
 		sched_yield();
 		return;
 	}
+
+	// Handle keyboard and serial interrupts.
+	// LAB 5: Your code here.
+	if (tf->tf_trapno == IRQ_OFFSET + IRQ_KBD) {
+		kbd_intr();
+		return;
+
+	} else if (tf->tf_trapno == IRQ_OFFSET + IRQ_SERIAL) {
+		serial_intr();
+		return;
+	}
+
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
 	if (tf->tf_cs == GD_KT)
@@ -357,13 +373,14 @@ page_fault_handler(struct Trapframe *tf)
 	// we branch to the page fault upcall recursively, pushing another
 	// page fault stack frame on top of the user exception stack.
 	//
-	// The trap handler needs one word of scratch space at the top of the
-	// trap-time stack in order to return.  In the non-recursive case, we
-	// don't have to worry about this because the top of the regular user
-	// stack is free.  In the recursive case, this means we have to leave
-	// an extra word between the current top of the exception stack and
-	// the new stack frame because the exception stack _is_ the trap-time
-	// stack.
+	// It is convenient for our code which returns from a page fault
+	// (lib/pfentry.S) to have one word of scratch space at the top of the
+	// trap-time stack; it allows us to more easily restore the eip/esp. In
+	// the non-recursive case, we don't have to worry about this because
+	// the top of the regular user stack is free.  In the recursive case,
+	// this means we have to leave an extra word between the current top of
+	// the exception stack and the new stack frame because the exception
+	// stack _is_ the trap-time stack.
 	//
 	// If there's no page fault upcall, the environment didn't allocate a
 	// page for its exception stack or can't write to it, or the exception

@@ -36,7 +36,6 @@ pgfault(struct UTrapframe *utf)
 	//   You should make three system calls.
 
 	// LAB 4: Your code here.
-	addr = ROUNDDOWN(addr, PGSIZE);
 	if ((r = sys_page_alloc(0, (void *) PFTEMP, PTE_P | PTE_W | PTE_U)) < 0)
 		panic("sys_page_alloc: %e", r);
 	memmove((void *) PFTEMP, (void *) ROUNDDOWN(addr, PGSIZE), PGSIZE);
@@ -66,7 +65,8 @@ duppage(envid_t envid, unsigned pn)
 	// LAB 4: Your code here.
 	pte_t pgtable_entry = uvpt[pn];
 	void *va = (void *) (pn * PGSIZE);
-	if ((pgtable_entry & PTE_W) || (pgtable_entry & PTE_COW)) {
+	if (((pgtable_entry & PTE_W) || (pgtable_entry & PTE_COW)) &&
+	    !(pgtable_entry & PTE_SHARE)) {
 		if (sys_page_map(thisenv->env_id,
 		                 va,
 		                 envid,

@@ -127,6 +127,38 @@ sys_env_set_status(envid_t envid, int status)
 	return 0;
 }
 
+// Set envid's trap frame to 'tf'.
+// tf is modified to make sure that user environments always run at code
+// protection level 3 (CPL 3) with interrupts enabled.
+//
+// Returns 0 on success, < 0 on error.  Errors are:
+//	-E_BAD_ENV if environment envid doesn't currently exist,
+//		or the caller doesn't have permission to change envid.
+static int
+sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
+{
+	// LAB 5: Your code here.
+	// Remember to check whether the user has supplied us with a good
+	// address!
+	struct Env *env;
+	int r;
+	if ((r = envid2env(envid, &env, 1)) < 0) {
+		return r;
+	}
+
+	user_mem_assert(env, tf, sizeof(struct Trapframe), PTE_U);
+
+	env->env_tf = *tf;
+	env->env_tf.tf_ds |= 3;
+	env->env_tf.tf_es |= 3;
+	env->env_tf.tf_ss |= 3;
+	env->env_tf.tf_cs |= 3;
+	env->env_tf.tf_eflags &= ~FL_IOPL_MASK;
+	env->env_tf.tf_eflags |= FL_IF;
+
+	return 0;
+}
+
 // Set the page fault upcall for 'envid' by modifying the corresponding struct
 // Env's 'env_pgfault_upcall' field.  When 'envid' causes a page fault, the
 // kernel will push a fault record onto the exception stack, then branch to
@@ -143,24 +175,6 @@ sys_env_set_pgfault_upcall(envid_t envid, void *func)
 	if (envid2env(envid, &env, 1) != 0)
 		return -E_BAD_ENV;
 	env->env_pgfault_upcall = func;
-	return 0;
-}
-
-static int
-check_va(void *va)
-{
-	if (((uintptr_t) va >= UTOP) || ((uintptr_t) va % PGSIZE != 0))
-		return -E_INVAL;
-	return 0;
-}
-
-static int
-check_perm(int perm)
-{
-	if (((perm & (PTE_U | PTE_P)) != (PTE_U | PTE_P)) ||
-	    ((perm | (PTE_SYSCALL)) != PTE_SYSCALL))
-		return -E_INVAL;
-
 	return 0;
 }
 
@@ -191,10 +205,14 @@ sys_page_alloc(envid_t envid, void *va, int perm)
 	//   allocated!
 
 	// LAB 4: Your code here.
-	if (check_va(va) < 0)
+	if (((uintptr_t) va >= UTOP) || ((uintptr_t) va % PGSIZE != 0)) {
 		return -E_INVAL;
-	if (check_perm(perm) < 0)
+	}
+
+	if (((perm & (PTE_U | PTE_P)) != (PTE_U | PTE_P)) ||
+	    ((perm | (PTE_SYSCALL)) != PTE_SYSCALL)) {
 		return -E_INVAL;
+	}
 
 	struct PageInfo *new_page = page_alloc(ALLOC_ZERO);
 	if (!new_page) {
@@ -246,14 +264,19 @@ sys_page_map(envid_t srcenvid, void *srcva, envid_t dstenvid, void *dstva, int p
 	    envid2env(dstenvid, &dst_env, 1) < 0)
 		return -E_BAD_ENV;
 
-	if (check_va(srcva) < 0 || check_va(dstva) < 0)
+	if (((uintptr_t) srcva >= UTOP) || ((uintptr_t) srcva % PGSIZE != 0) ||
+	    ((uintptr_t) dstva >= UTOP) || ((uintptr_t) dstva >= UTOP)) {
 		return -E_INVAL;
-	if (check_perm(perm) < 0)
-		return -E_INVAL;
+	}
 
 	struct PageInfo *shared_page = page_lookup(src_env->env_pgdir, srcva, 0);
 	if (!shared_page)
 		return -E_INVAL;
+
+	if (((perm & (PTE_U | PTE_P)) != (PTE_U | PTE_P)) ||
+	    ((perm | (PTE_SYSCALL)) != PTE_SYSCALL)) {
+		return -E_INVAL;
+	}
 
 	pte_t *pgtable_entry = pgdir_walk(src_env->env_pgdir, srcva, 0);
 	if ((perm & PTE_W) && !(*pgtable_entry & PTE_W)) {
@@ -285,8 +308,9 @@ sys_page_unmap(envid_t envid, void *va)
 	if (envid2env(envid, &env, 1) < 0)
 		return -E_BAD_ENV;
 
-	if (check_va(va) < 0)
+	if (((uintptr_t) va >= UTOP) || ((uintptr_t) va % PGSIZE != 0)) {
 		return -E_INVAL;
+	}
 
 	page_remove(env->env_pgdir, va);
 	return 0;
@@ -341,11 +365,12 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 	if (!receiver->env_ipc_recving)
 		return -E_IPC_NOT_RECV;
 	if ((uintptr_t) srcva < UTOP) {
-		if (check_va(srcva) < 0)
+		if ((uintptr_t) srcva % PGSIZE != 0)
 			return -E_INVAL;
-		if (check_perm(perm) < 0)
+		if (((perm & (PTE_U | PTE_P)) != (PTE_U | PTE_P)) ||
+		    ((perm | (PTE_SYSCALL)) != PTE_SYSCALL)) {
 			return -E_INVAL;
-
+		}
 		pte_t *pgtable_entry;
 		struct PageInfo *page =
 		        page_lookup(curenv->env_pgdir, srcva, &pgtable_entry);
@@ -445,6 +470,9 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 		                        (unsigned int) a4);
 	case SYS_env_set_pgfault_upcall:
 		return sys_env_set_pgfault_upcall((envid_t) a1, (void *) a2);
+	case SYS_env_set_trapframe:
+		return sys_env_set_trapframe((envid_t) a1,
+		                             (struct Trapframe *) a2);
 	default:
 		return -E_INVAL;
 	}
