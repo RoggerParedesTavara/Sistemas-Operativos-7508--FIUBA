@@ -1,20 +1,30 @@
-CFLAGS := -ggdb3 -O2 -Wall -Wextra -std=c11
-CFLAGS += -Wmissing-prototypes -Wvla
-CPPFLAGS := -D_DEFAULT_SOURCE
+CFLAGS := -ggdb3 -O2 -Wall -Wextra -std=gnu11
+CFLAGS += -Wmissing-prototypes
 
-PROGS := pingpong primes find xargs
+# To force build a test shell run:
+#     make -B -e SHELL_TEST=true
+ifdef SHELL_TEST
+	CFLAGS += -D SHELL_NO_COLORS -D SHELL_NO_INTERACTIVE
+endif
 
-all: $(PROGS)
+EXEC := sh
+SRCS := $(wildcard *.c)
+OBJS := $(SRCS:%.c=%.o)
 
-find: find.o
-xargs: xargs.o
-primes: primes.o
-pingpong: pingpong.o
+all: $(EXEC)
+
+run: $(EXEC)
+	./$(EXEC)
+
+valgrind: $(EXEC)
+	valgrind --leak-check=full --show-leak-kinds=all ./$(EXEC)
+
+$(EXEC): $(OBJS)
 
 format: .clang-files .clang-format
 	xargs -r clang-format -i <$<
 
 clean:
-	rm -f $(PROGS) *.o core vgcore.*
+	rm -rf $(EXEC) *.o core vgcore.*
 
-.PHONY: all clean format
+.PHONY: all clean format run valgrind
