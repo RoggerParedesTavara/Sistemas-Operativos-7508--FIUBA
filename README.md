@@ -1,3 +1,15 @@
-# Sistemas Operativos [7508] FIUBA
+# lab-fork
 
-#### Se encuentran presentes los trabajos prácicos realizados a lo largo de la cursada de Sistemas Operativos 1C2022.
+Repositorio para el esqueleto del [lab fork](https://fisop.github.io/7508/lab/fork) del curso Mendez-Fresia de **Sistemas Operativos (7508) - FIUBA**
+
+## Compilar
+
+```bash
+$ make
+```
+
+## Linter
+
+```bash
+$ make format
+```
