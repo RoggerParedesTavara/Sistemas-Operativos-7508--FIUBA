@@ -4,6 +4,7 @@
 #include <inc/memlayout.h>
 #include <inc/trap.h>
 
+#include <kern/picirq.h>
 
 
 ###################################################################
@@ -66,6 +67,8 @@ TRAPHANDLER_NOEC(trap_16, T_FPERR)
 TRAPHANDLER_NOEC(trap_17, T_ALIGN)
 TRAPHANDLER_NOEC(trap_18, T_MCHK)
 TRAPHANDLER_NOEC(trap_19, T_SIMDERR)
+
+TRAPHANDLER_NOEC(trap_32, IRQ_OFFSET)
 
 TRAPHANDLER_NOEC(trap_48, T_SYSCALL)
 
